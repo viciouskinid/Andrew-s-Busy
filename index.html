@@ -57,7 +57,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 .sm.go{background:var(--accent);color:var(--on-accent)}
 .sm.x{color:var(--danger);padding:0 14px}
 dock,.dock{display:flex;gap:12px;align-items:center;padding:12px 16px 14px;background:var(--card);border-top:1px solid var(--line)}
-.status{padding:8px 20px 0;color:var(--muted);font-size:.9rem;min-height:2.2em;background:var(--card)}
+.status{cursor:pointer;padding:8px 20px 0;color:var(--muted);font-size:.9rem;min-height:2.2em;background:var(--card)}
 .mic{flex:1;min-height:64px;border-radius:32px;background:var(--accent);color:var(--on-accent);font-size:1.1rem;display:flex;align-items:center;justify-content:center;gap:10px}
 .mic.on{animation:pulse 1.2s ease-in-out infinite}
 .mic:disabled{opacity:.45}
@@ -149,7 +149,7 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
 <script>
 /* BUILD STAMP: on EVERY code change set BUILD_STAMP to the current local time (YYYY-MM-DD HH:MM:SS).
    If no clock is available set BUILD_STAMP = 'unknown' and increment BUILD_VERSION; with a clock set BUILD_VERSION = null. */
-const BUILD_STAMP   = '2026-11-15 21:51:19'; // BUILD_STAMP
+const BUILD_STAMP   = '2026-11-15 22:02:21'; // BUILD_STAMP
 const BUILD_VERSION = null;                  // BUILD_VERSION
 const BUILD_NOTE    = 'AI had no clock access — version bumped.';
 </script>
@@ -231,6 +231,7 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
 
   /* ---------- helpers ---------- */
   const say = msg => { statusEl.textContent = msg; };
+  statusEl.addEventListener('click', () => { statusEl.textContent = ''; });   // tap a message to dismiss it
   const left = t => t.done ? 0 : t.endAt ? Math.max(0, t.endAt - Date.now()) : t.left;
   function fmt(ms) {
     const s = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), r = s % 60;
@@ -477,6 +478,15 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
     let rec = null, startWatch = null, wantOn = false, multi = false, restartT = null, quickFails = 0, heardAny = false, announce = true;
     let pendName = '', pendNameAt = 0, pendTimer = null, pendTimerAt = 0;   // half-finished timers across pauses
     const clearPending = () => { pendName = ''; pendTimer = null; };
+    // Status notes about timers just set are only useful while the button is held, so clear them on release.
+    let lastMsg = '', lastShown = '';
+    const note = (msg, still) => { lastMsg = msg; lastShown = msg + (still ? ' Still listening…' : ''); say(lastShown); };
+    function release() {
+      if (lastShown && statusEl.textContent === lastShown) say(!lastMsg && pendName ? `Heard “${pendName}” but no time was given, so no timer was set.` : '');   // timer-set notes are only useful while held; the card shows the rest
+      lastMsg = lastShown = '';
+      clearPending();
+      if (holding) { holding = false; commit(); endFresh(); }   // button released: sort by time remaining
+    }
     const resetMic = () => { clearTimeout(startWatch); micBtn.classList.remove('on'); micText.textContent = settings.hold ? 'Hold to talk' : 'Tap to talk'; };
 
     // One finished phrase from the recogniser.
@@ -491,10 +501,10 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
         if (!w) { say(`Heard “${alts[0]}”, but no time or name. Try “5 minutes chicken”.`); return; }
         if (pendTimer && timers.includes(pendTimer)) {              // "5 minutes" … pause … "chicken"
           pendTimer.label = cap(w).slice(0, 50); const t = pendTimer; pendTimer = null; commit();
-          say(`${t.label} timer set for ${fmt(t.total)}. Still listening…`); return;
+          note(`${t.label} timer set for ${fmt(t.total)}.`, multi && wantOn); return;
         }
         pendName = pendName ? pendName + ' ' + w : w; pendNameAt = now;   // "chicken" … pause … "5 minutes"
-        say(`Heard “${pendName}”. Now say how long. Still listening…`); return;
+        note('', false); lastShown = `Heard “${pendName}”. Now say how long. Still listening…`; say(lastShown); return;
       }
       const made = [];
       p.items.forEach((it, i) => {
@@ -507,7 +517,7 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
       const lastItem = made[made.length - 1];
       if (lastItem && !lastItem.named) { pendTimer = lastItem.t; pendTimerAt = now; }   // may still get a name
       if (p.tail) { pendName = p.tail; pendNameAt = now; }
-      if (made.length) say((made.length > 1 ? `${made.length} timers set` : `${made[0].t.label} timer set for ${fmt(made[0].t.total)}`) + (multi && wantOn ? '. Still listening…' : '.'));
+      if (made.length) note((made.length > 1 ? `${made.length} timers set` : `${made[0].t.label} timer set for ${fmt(made[0].t.total)}`) + '.', multi && wantOn);
     }
 
     function startSession() {
@@ -555,8 +565,7 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
           if (quickFails < 5) { micText.textContent = 'Listening…'; restartT = setTimeout(() => { if (wantOn && !rec) startSession(); }, 60); return; }
           say('Voice keeps stopping. Let go and hold again, or use Add.');
         }
-        wantOn = false; clearPending(); resetMic();
-        if (holding) { holding = false; commit(); endFresh(); }   // button released: sort by time remaining
+        wantOn = false; resetMic(); release();
         if (!errored && !heardAny && !quickFails) say(settings.hold ? 'Didn’t catch anything. Hold the button while you speak, then let go.' : 'Didn’t catch anything. Tap the mic and try again.');
         quickFails = 0;
       };
@@ -566,18 +575,18 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
       startWatch = setTimeout(() => {
         if (rec === r && !micBtn.classList.contains('on')) {
           wantOn = false; try { r.abort(); } catch (e) {}
-          rec = null; resetMic(); if (holding) { holding = false; commit(); endFresh(); }
+          rec = null; resetMic(); release();
           say('Voice isn’t responding here. Open the link directly in Chrome or Safari, or use Add.');
         }
       }, 5000);
       try { r.start(); }
-      catch (e) { wantOn = false; rec = null; resetMic(); if (holding) { holding = false; commit(); endFresh(); } say(`Couldn’t start voice (${e.name || 'error'}). Open the link directly in Chrome or Safari, or use Add.`); }
+      catch (e) { wantOn = false; rec = null; resetMic(); release(); say(`Couldn’t start voice (${e.name || 'error'}). Open the link directly in Chrome or Safari, or use Add.`); }
     }
 
     function voiceToggle(mode) {
       unlockAudio();
       if (rec || wantOn) {
-        if (mode !== 'start') { wantOn = false; clearTimeout(restartT); if (rec) { try { rec.stop(); } catch (e) {} } else { clearPending(); resetMic(); if (holding) { holding = false; commit(); endFresh(); } } }
+        if (mode !== 'start') { wantOn = false; clearTimeout(restartT); if (rec) { try { rec.stop(); } catch (e) {} } else { resetMic(); release(); } }
         return;
       }
       if (mode === 'stop') return;
