@@ -57,6 +57,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 .sm.go{background:var(--accent);color:var(--on-accent)}
 .sm.x{color:var(--danger);padding:0 14px}
 dock,.dock{display:flex;gap:12px;align-items:center;padding:12px 16px 14px;background:var(--card);border-top:1px solid var(--line)}
+.status:empty{display:none}
 .status{cursor:pointer;padding:8px 20px 0;color:var(--muted);font-size:.9rem;min-height:2.2em;background:var(--card)}
 .mic{flex:1;min-height:64px;border-radius:32px;background:var(--accent);color:var(--on-accent);font-size:1.1rem;display:flex;align-items:center;justify-content:center;gap:10px}
 .mic.on{animation:pulse 1.2s ease-in-out infinite}
@@ -149,7 +150,7 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
 <script>
 /* BUILD STAMP: on EVERY code change set BUILD_STAMP to the current local time (YYYY-MM-DD HH:MM:SS).
    If no clock is available set BUILD_STAMP = 'unknown' and increment BUILD_VERSION; with a clock set BUILD_VERSION = null. */
-const BUILD_STAMP   = '2026-11-15 22:02:21'; // BUILD_STAMP
+const BUILD_STAMP   = '2026-11-15 22:17:09'; // BUILD_STAMP
 const BUILD_VERSION = null;                  // BUILD_VERSION
 const BUILD_NOTE    = 'AI had no clock access — version bumped.';
 </script>
