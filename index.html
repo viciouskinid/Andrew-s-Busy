@@ -140,7 +140,11 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
   <label for="msgIn">Message</label>
   <input id="msgIn" type="text" maxlength="140" autocomplete="off">
   <p class="hint">Use {name} for the timer name and {time} for how long it ran. For example: “{name} has been going for {time}.”</p>
-  <div class="sheet-acts"><button type="button" id="testSound">Test sound</button><button type="button" id="testVoice">Test voice</button></div>
+  <label class="check"><input id="alarmVoiceChk" type="checkbox"> Speak a message when an alarm goes off</label>
+  <label for="alarmMsgIn">Alarm message</label>
+  <input id="alarmMsgIn" type="text" maxlength="140" autocomplete="off">
+  <p class="hint">Use {name} for the alarm name and {time} for the time it is set for. For example: “{name}. It is {time}.”</p>
+  <div class="sheet-acts"><button type="button" id="testSound">Test sound</button><button type="button" id="testVoice">Test timer voice</button><button type="button" id="testAlarmVoice">Test alarm voice</button></div>
   <div class="sheet-acts"><button type="button" id="closeSettings" class="go">Done</button></div>
   <p class="hint" id="build" title="Build date and time (local)" style="text-align:center;margin-top:14px"></p>
 </dialog>
@@ -150,7 +154,7 @@ button{display:inline-flex;align-items:center;justify-content:center;gap:8px}
 <script>
 /* BUILD STAMP: on EVERY code change set BUILD_STAMP to the current local time (YYYY-MM-DD HH:MM:SS).
    If no clock is available set BUILD_STAMP = 'unknown' and increment BUILD_VERSION; with a clock set BUILD_VERSION = null. */
-const BUILD_STAMP   = '2026-11-19 22:05:29'; // BUILD_STAMP
+const BUILD_STAMP   = '2026-11-19 22:16:42'; // BUILD_STAMP
 const BUILD_VERSION = null;                  // BUILD_VERSION
 const BUILD_NOTE    = 'AI had no clock access — version bumped.';
 </script>
@@ -195,7 +199,7 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
     const n = parseInt(hex.slice(1), 16);
     return (.299 * (n >> 16) + .587 * ((n >> 8) & 255) + .114 * (n & 255)) / 255;
   }
-  const DEFAULTS = { theme:'system', accent:'slate', hold:true, voiceName:'Catherine', sound:'beep', volume:80, voice:true, message:'{name} has been going for {time}.' };
+  const DEFAULTS = { theme:'system', accent:'slate', hold:true, voiceName:'Catherine', sound:'beep', volume:80, voice:true, message:'{name} has been going for {time}.', alarmVoice:false, alarmMessage:'{name}. It is {time}.' };
   let settings = { ...DEFAULTS };
   try { Object.assign(settings, JSON.parse(localStorage.getItem(SKEY) || '{}')); } catch (e) {}
   if (!settings.migrated2) { settings.accent = 'slate'; settings.voiceName = 'Catherine'; settings.migrated2 = true; }
@@ -219,6 +223,7 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
     if (h) p.push(pl(h, 'hour')); if (m) p.push(pl(m, 'minute')); if (r) p.push(pl(r, 'second'));
     return p.length > 1 ? p.slice(0, -1).join(', ') + ' and ' + p[p.length - 1] : (p[0] || '0 seconds');
   }
+  const fillAlarm = (tpl, name, clock) => tpl.replace(/\{name\}/gi, name || 'Alarm').replace(/\{time\}/gi, clock);
   const fillMsg = (tpl, name, ms) => tpl.replace(/\{name\}/gi, name).replace(/\{time\}/gi, spoken(ms));
 
   const PATHS = {
@@ -289,9 +294,11 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
   }
   let ringCount = 0;
   function speakDone() {
-    if (!settings.voice) return;
     const tpl = (settings.message || '').trim() || DEFAULTS.message;
-    const msg = timers.filter(t => t.done).map(t => t.alarm ? `${t.alarm.name || 'Alarm'}. It is ${t.alarm.clock}.` : fillMsg(tpl, t.label, t.total)).join(' ');
+    const atpl = (settings.alarmMessage || '').trim() || DEFAULTS.alarmMessage;
+    const msg = timers.filter(t => t.done).map(t => t.alarm
+      ? (settings.alarmVoice ? fillAlarm(atpl, t.alarm.name, t.alarm.clock) : '')
+      : (settings.voice ? fillMsg(tpl, t.label, t.total) : '')).filter(Boolean).join(' ');
     if (msg.trim()) speak(msg);
   }
   function ring() {
@@ -340,25 +347,6 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
     timers.unshift(t); fresh.add(t.id); if (!holding) endFresh();
     commit(); return t;
   }
-  /* TEST: hand an alarm to the phone's Clock app (Android SET_ALARM intent from Chrome).
-     false = Clock opens with the alarm filled in for you to confirm. true = tries to set it silently
-     (Android may refuse that from a web page). */
-  const CLOCK_SKIP_UI = false;
-  function sendToClock(t) {
-    const d = new Date(t.endAt), name = t.alarm.name || 'Alarm';
-    const url = 'intent:#Intent;action=android.intent.action.SET_ALARM;'
-      + `i.android.intent.extra.alarm.HOUR=${d.getHours()};i.android.intent.extra.alarm.MINUTES=${d.getMinutes()};`
-      + `S.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(name)};`
-      + `B.android.intent.extra.alarm.SKIP_UI=${CLOCK_SKIP_UI};end`;
-    let left = false;
-    const onVis = () => { if (document.hidden) left = true; else if (left) { document.removeEventListener('visibilitychange', onVis); say('Back from the Clock app. Check that the alarm is there.'); } };
-    document.addEventListener('visibilitychange', onVis);
-    say('Asking Android to open the Clock app…');
-    try { window.location.href = url; } catch (e) { say('Couldn’t send the alarm: ' + (e.name || 'error')); }
-    setTimeout(() => {
-      if (!left) { document.removeEventListener('visibilitychange', onVis); say('Nothing opened. Chrome or the Clock app didn’t accept the request, so this phone may not allow it from a web page.'); }
-    }, 2500);
-  }
   const byId = id => timers.find(t => t.id === id);
   function pauseResume(t) {
     if (t.endAt) { t.left = left(t); t.endAt = null; }
@@ -366,7 +354,11 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
     commit();
   }
   function restart(t) { t.done = false; t.left = t.total; t.endAt = Date.now() + t.total; commit(); }
-  function remove(t) { timers = timers.filter(x => x !== t); commit(); }
+  function remove(t) {
+    timers = timers.filter(x => x !== t);
+    if (statusEl.textContent.endsWith(' is ringing.') && !timers.some(x => x.alarm && x.done)) say('');   // alarm dismissed: drop its banner
+    commit();
+  }
   function commit() {
     if (!holding) timers.sort((a, b) => left(a) - left(b));   // soonest first (finished = 0, so they stay on top)
     save(); render(); syncAlarm(); syncWake();
@@ -404,8 +396,8 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
       if (t.done) {
         if (!t.alarm) acts.append(btn(ico('restart') + 'Restart', '', () => restart(t)));
         acts.append(btn(ico('check') + 'Dismiss', 'go', () => remove(t)));
-      } else if (t.alarm) acts.append(btn('Set in Clock app', '', () => sendToClock(t)));
-      card.append(top, time, bar); if (t.done || t.alarm) card.append(acts); listEl.appendChild(card);
+      }
+      card.append(top, time, bar); if (t.done) card.append(acts); listEl.appendChild(card);
       cards.set(t.id, { time, fill });
       paint(t);
     });
@@ -570,8 +562,10 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
       for (const a of alts) {                                       // clock-time alarm?
         const al = parseAlarm(a);
         if (al) {
+          const name = al.name || pendName;                           // "gym" … pause … "alarm for 7:30"
           pendName = ''; pendTimer = null;
-          const t = addAlarm(al.at, al.name), mins = Math.round(t.total / 60000);
+          const t = addAlarm(al.at, name), mins = Math.round(t.total / 60000);
+          if (!name) { pendTimer = t; pendTimerAt = now; }            // "alarm for 7:30" … pause … "gym"
           note(`${t.label} set (in ${mins >= 60 ? Math.floor(mins / 60) + 'h ' : ''}${mins % 60}m).`, multi && wantOn);
           return;
         }
@@ -583,8 +577,11 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
         const w = parseTimers(alts[0]).words;
         if (!w) { say(`Heard “${alts[0]}”, but no time or name. Try “5 minutes chicken”.`); return; }
         if (pendTimer && timers.includes(pendTimer)) {              // "5 minutes" … pause … "chicken"
-          pendTimer.label = cap(w).slice(0, 50); const t = pendTimer; pendTimer = null; commit();
-          note(`${t.label} timer set for ${fmt(t.total)}.`, multi && wantOn); return;
+          const t = pendTimer; pendTimer = null;
+          if (t.alarm) { t.alarm.name = cap(w).slice(0, 50); t.label = t.alarm.name + ' · ' + t.alarm.clock; }
+          else t.label = cap(w).slice(0, 50);
+          commit();
+          note(t.alarm ? `${t.label} set.` : `${t.label} timer set for ${fmt(t.total)}.`, multi && wantOn); return;
         }
         pendName = pendName ? pendName + ' ' + w : w; pendNameAt = now;   // "chicken" … pause … "5 minutes"
         note('', false); lastShown = `Heard “${pendName}”. Now say how long. Still listening…`; say(lastShown); return;
@@ -701,6 +698,7 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
   $('cogBtn').addEventListener('click', () => {
     $('themeSel').value = settings.theme; $('soundSel').value = settings.sound;
     $('volRange').value = settings.volume; $('voiceChk').checked = settings.voice; $('msgIn').value = settings.message;
+    $('alarmVoiceChk').checked = settings.alarmVoice; $('alarmMsgIn').value = settings.alarmMessage;
     $('accentSel').value = settings.accent; $('holdChk').checked = settings.hold; populateVoices();
     unlockAudio(); settingsSheet.showModal();
   });
@@ -711,6 +709,9 @@ document.getElementById('build').textContent = BUILD_STAMP !== 'unknown'
   $('volRange').addEventListener('change', () => playSound(settings.sound));
   $('voiceChk').addEventListener('change', e => { settings.voice = e.target.checked; saveSettings(); });
   $('msgIn').addEventListener('input', e => { settings.message = e.target.value; saveSettings(); });
+  $('alarmVoiceChk').addEventListener('change', e => { settings.alarmVoice = e.target.checked; saveSettings(); });
+  $('alarmMsgIn').addEventListener('input', e => { settings.alarmMessage = e.target.value; saveSettings(); });
+  $('testAlarmVoice').addEventListener('click', () => speak(fillAlarm((settings.alarmMessage || '').trim() || DEFAULTS.alarmMessage, 'Gym', '7:30 am')));
   $('testSound').addEventListener('click', () => playSound(settings.sound));
   $('testVoice').addEventListener('click', () => speak(fillMsg((settings.message || '').trim() || DEFAULTS.message, 'Chicken', 300000)));
 
